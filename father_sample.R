@@ -1,13 +1,17 @@
-r2_for_sample <- function(csv,phenofile,trybd,select_var_num)
-{
+# r2_for_sample <- function(trybd,select_var_num)
+# {
+# setwd("/Users/qihua/Public/BS")
+# source("father_sample.R")
 library(Matrix)
 library(stringr)
-csvnn <- csv[csv[,3]=="binary",]
+library("data.table")
+csv <- read.csv("phenotypes.both_sexes.csv", sep = ";", stringsAsFactors = FALSE)
+phenofile <-readRDS("20190901_R2.rds")
+source("sojo.phenotype.function.R")
 
+csvnn <- csv[csv[,3]=="binary",]
 ### remove illnesses of father and sibrings
 csvdata <- csvnn[!(str_detect(csvnn[,2], "Illnesses")), c(1,5,6,7,8)]
-
-
 ncase <- as.numeric(csvdata[,5])
 ncontrol <- as.numeric(csvdata[,4])
 nnnnn1 <- as.numeric(csvdata[,2])
@@ -49,81 +53,112 @@ vec <- which(colnames(LD_phenomat)== "1807_irnt")
 yxcor <- LD_phenomat[colnames(LD_phenomat)== "1807_irnt", -vec]
 xxcor <- LD_phenomat[-vec, -vec]
 
+
+##### gain selected markers and in sample r2
 df.sojo <- data.frame(var.x = xinformat$var, cor.x.y = yxcor)
-res <- sojo.phenotype(sum.stat.discovery = df.sojo, cor.X = xxcor, v.y = yinformat$var, nvar = 19)
+
+res <- sojo.phenotype(sum.stat.discovery = df.sojo, cor.X = xxcor, v.y = yinformat$var, nvar = 10)
 sojo.insample  <- sojo.phenotype(sum.stat.discovery =df.sojo, sum.stat.validation = df.sojo,
-                               cor.X = xxcor, v.y = yinformat$var, v.y.validation = yinformat$var, nvar = 18)
+                               cor.X = xxcor, v.y = yinformat$var, v.y.validation = yinformat$var, nvar = 10)
 
-### extract the f.[0-9].0.0 type data
-tryposi <- which(!is.na(str_extract(colnames(trybd), "f\\.[0-9]+\\.0\\.0")))
-trybd.0.01 <-trybd[,tryposi]
-
-### change their names
-colnames(trybd.0.01) <- str_extract(colnames(trybd.0.01), "[0-9]+")
-
-### remove white british data
-ancestry_loca <- which(colnames(trybd.0.01) == "21000")
-trybd.0.02 <- trybd.0.01[-which(trybd.0.01[,ancestry_loca] == "1001"),]
-
-### remove 22006 data
-ancestry_loca1 <- which(colnames(trybd.0.02) == "22006")
-trybd.0.03 <- trybd.0.02[,-ancestry_loca1]
-
-### transform irnt data in validation set data
-csvc_phenotype <- str_extract(csvc$phenotype, "[0-9]+")
-irnt_overlap <- which( colnames(trybd.0.03) %in% csvc_phenotype)
-df <- trybd.0.03[ , irnt_overlap]
-for(i in 1:ncol(df)){
-  df[,i] =  qnorm((rank(df[,i],na.last="keep")-0.5)/sum(!is.na(df[,i])))
-}
-trybd.0.0 <- trybd.0.03
-trybd.0.0[ , irnt_overlap] <- df
-
-
-markers_selected <- str_extract(res$selected.markers, "[0-9]+")
-markers_selected1 <- intersect(markers_selected , colnames(trybd.0.0))
-select3 <- res$selected.markers[match(markers_selected1 , markers_selected)]
-
-select1 <- c(which(csvn$phenotype == "1807_irnt"),which(csvn$phenotype %in% select3))
-csvn_select <- csvn[select1, ]
-
-yinformat <- subset(csvn_select, phenotype == "1807_irnt", select = c(phenotype, mean, var))
-xinformat <-  subset(csvn_select, phenotype != "1807_irnt", select = c(phenotype, mean, var))
-
-select2 <- c(which(colnames(phenofile) == "1807_irnt"),which(colnames(phenofile) %in% select3))
-LD_phenomat <- phenofile[csvn_select$phenotype, csvn_select$phenotype]
-
-##### obtain estimated beta and insample r2
+##### obtain estimated beta 
 vec <- which(colnames(LD_phenomat) == "1807_irnt")
 cor.x.y <- LD_phenomat[colnames(LD_phenomat)=="1807_irnt", -vec]
 cor.x <- LD_phenomat[-vec, -vec]
 cov.x <- diag(sqrt(xinformat$var)) %*% cor.x %*% diag(sqrt(xinformat$var))
+colnames(cov.x) <- colnames(cor.x)
+row.names(cov.x) <- row.names(cor.x)
 cov.x.y <- cor.x.y * sqrt(yinformat$var) * sqrt(xinformat$var)
-dimnames(cov.x.y) <- dimnames(cor.x.y)
-dimnames(cov.x) <- dimnames(cor.x)
 
+cov.x <- cov.x[res$selected.markers,res$selected.markers]
+cov.x.y <- cov.x.y[res$selected.markers]
+beta <- solve(cov.x) %*% cov.x.y
 
+##### input non White British data
+tsv_data <- fread("/Users/qihua/Public/PHESANT/WAS/results/output..tsv", header=TRUE, sep='\t', data.table=FALSE)
+pheno_data <- tsv_data[,-c(1,2,3)]
+judge_set <- c()
+for (i in 1:length(colnames(pheno_data))) {
+  if(class(pheno_data[,i]) == "logical"){
+    judge_set[i] = TRUE
+  }else{
+    judge_set[i] = FALSE
+  }}
+binary_set <- pheno_data[,which(judge_set)]
+binary_set1 <- ifelse(binary_set == TRUE, 1, 0)
+continuous_set <- pheno_data[,-which(judge_set)]
+colnames(continuous_set) <- paste(colnames(continuous_set), "_irnt", sep = "")
+total_set <- cbind(binary_set1, continuous_set)
+n_white <- total_set[which(total_set[,"21000_1001"] == 0),]
+n_whi <- n_white[ ,-which(colnames(n_white) == "22006")]
+### dim(whi) = 57160 1755
+vari <- c("1807_irnt", res$selected.markers)
 
-select_var <- select3[select_var_num]
-cov.x <- cov.x[select_var,select_var]
+## out_r2 
+  lm_R2 <- c()
+  select_data <- as.matrix(n_whi[, vari])
+  na_fix <- na.omit(select_data)
+    p <- ncol(na_fix)
+    q <- nrow(na_fix)
 
-cov.x.y <- cov.x.y[select_var]
-cor.x <- cor.x[select_var,select_var]
-ebeta <- solve(cov.x) %*% cov.x.y
+  score <- sweep(na_fix[,-1], 2, beta, "*")
+  for (i in 1:length(vari[-1])) {
+    lm_summary <- summary(lm(na_fix[,1]~ score[,1:i] ))
+    lm_R2[i] <- lm_summary$r.squared
+  }
+  t <- list(p-1,q,lm_R2[length(lm_R2)])
+  return(t)
 
-cov.y.hy <- cov.x.y %*% ebeta
-row.names(xinformat) <- xinformat$phenotype
-xinformat <- xinformat[select_var,]
+for (i in 1:10) {
+  m <- pheno_log(i)
+  var_num <- c()
+  sam_size <- c()
+  r2 <- c()
+  var_num[i] <- m[[1]]
+  sam_size <- m[[2]] 
+  r2 <- m[[3]]
+}
+s <- list(var_num, sam_size, r2)
 
-var.hy <- t(sqrt(xinformat$var) * ebeta) %*% cor.x %*% (sqrt(xinformat$var) * ebeta)
-cor.y.hy <- cov.y.hy^2/var.hy/yinformat$var
+# pheno_log <- function(num){
+#   res <- sojo.phenotype(sum.stat.discovery = df.sojo, cor.X = xxcor, v.y = yinformat$var, nvar = num)
+# cov.x <- diag(sqrt(xinformat$var)) %*% cor.x %*% diag(sqrt(xinformat$var))
+# colnames(cov.x) <- colnames(cor.x)
+# row.names(cov.x) <- row.names(cor.x)
+# cov.x.y <- cor.x.y * sqrt(yinformat$var) * sqrt(xinformat$var)
+# cov.x <- cov.x[res$selected.markers,res$selected.markers]
+# cov.x.y <- cov.x.y[res$selected.markers]
+# beta <- solve(cov.x) %*% cov.x.y
+#   cov.x <- cov.x[res$selected.markers,res$selected.markers]
+#   cov.x.y <- cov.x.y[res$selected.markers]
+#   beta <- solve(cov.x) %*% cov.x.y
+#   vari <- c("1807_irnt", res$selected.markers)
+#   ## out_r2 
+#   lm_R2 <- c()
+#   select_data <- as.matrix(n_whi[, vari])
+#   na_fix <- na.omit(select_data)
+#   p <- ncol(na_fix)
+#   q <- nrow(na_fix)
+#   score <- sweep(na_fix[,-1], 2, beta, "*")
+#   for (i in 1:length(vari[-1])) {
+#     lm_summary <- summary(lm(na_fix[,1]~ score[,1:i] ))
+#     lm_R2[i] <- lm_summary$r.squared
+#   }
+#   t <- list(p-1,q,lm_R2[length(lm_R2)])
+#   return(t)
+# }
+# for (i in 1:10) {
+#   m <- pheno_log(i)
+#   var_num <- c()
+#   sam_size <- c()
+#   r2 <- c()
+#   var_num[i] <- m[[1]]
+#   sam_size <- m[[2]] 
+#   r2 <- m[[3]]
+# }
+# s <- list(var_num, sam_size, r2)
+# 
 
-### ebeta are sorted in the order of selected.markers
-pheno1807 <- trybd.0.0[,which(colnames(trybd.0.0) == "1807")]
-bd_select <- trybd.0.0[,markers_selected1]
-rownames(ebeta) <- names(cov.x.y)
-
-ebeta
 
 # ### in sample r2
 # in_r2 <- function(select_var, xinformat, yinformat, cor.x.y, cor.x){
@@ -540,4 +575,3 @@ ebeta
 #############################################################################
 #####################################################################################
 ###############################################################################################
-}
