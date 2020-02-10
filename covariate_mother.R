@@ -1,10 +1,12 @@
+### with no sex and age adjust 21022_0_0 and 31_0_0(is female)
 # setwd("/Users/qihua/Public/BS")
 # source("mother_sample.R")
 library(Matrix)
 library(stringr)
 library("data.table")
-csv <- fread("phenotypes.both_sexes.tsv", header=TRUE, sep='\t', data.table=FALSE)
-phenofile <-readRDS("20190901_R2.rds")
+csv <- read.csv("phenotypes.both_sexes.csv", sep = ";", stringsAsFactors = FALSE)
+csv$phenotype[]
+phenofile <-readRDS("20191217_R2_age_sex.rds")
 source("sojo.phenotype.function.R")
 
 csvnn <- csv[csv[,3]=="binary",]
@@ -30,10 +32,15 @@ csvc_raw[,2] <- rep(0, len)
 csvc_raw[,3] <- rep(1, len)
 csvc <- csvc_raw[,c(1,2,3)]
 colnames(csvc) <- colnames(csvb)
-csvn1 <- rbind(csvb, csvc)
+cs_sex <- c(31, 194174/361194, 194174*167020/(361194^2) )
+cs_age <- c(21022, 0, 1)
+csvn1 <- rbind(csvb, csvc, cs_sex, cs_age)
 csvn2 <- csvn1[csvn1[,1] != "1807_irnt", ]
 csvn <- csvn2[csvn2[,1] != "4501", ]
 #csvn <- csvn3[csvn3[,1] != "2139_irnt", ]
+# 194174/361194 = 0.5375892, 194174*167020/(361194^2) = 0.2485871
+csvn[which(csvn$phenotype == "31"),1] = "sex"
+csvn[which(csvn$phenotype == "21022"),1] = "age"
 
 ##### seek overlap between correlation matrix and phenotype table
 phenotype.overlap <- intersect(csvn$phenotype, colnames(phenofile))
@@ -51,11 +58,10 @@ vec <- which(colnames(LD_phenomat)== "3526_irnt")
 yxcor <- LD_phenomat[vec, -vec]
 xxcor <- LD_phenomat[-vec, -vec]
 
-
 ##### gain selected markers and in sample r2
 df.sojo <- data.frame(var.x = xinformat$var, cor.x.y = yxcor)
 
-res <- sojo.phenotype(sum.stat.discovery = df.sojo, cor.X = xxcor, v.y = yinformat$var, nvar = 10)
+res <- sojo.phenotype(sum.stat.discovery = df.sojo, cor.X = xxcor, v.y = yinformat$var, nvar = 9)
 sojo.insample  <- sojo.phenotype(sum.stat.discovery =df.sojo, sum.stat.validation = df.sojo,
                                  cor.X = xxcor, v.y = yinformat$var, v.y.validation = yinformat$var, nvar = 10)
 
@@ -68,12 +74,13 @@ colnames(cov.x) <- colnames(cor.x)
 row.names(cov.x) <- row.names(cor.x)
 cov.x.y <- cor.x.y * sqrt(yinformat$var) * sqrt(xinformat$var)
 
-cov.x <- cov.x[res$selected.markers,res$selected.markers]
-cov.x.y <- cov.x.y[res$selected.markers]
+sase <- c("sex","age",res$selected.markers)
+cov.x <- cov.x[sase,sase]
+cov.x.y <- cov.x.y[sase]
 be <- solve(cov.x) %*% cov.x.y
 
 ##### input non White British data
-tsv_data <- fread("5_new.tsv", header=TRUE, sep='\t', data.table=FALSE)
+tsv_data <- fread("/Users/qihua/Public/PHESANT/WAS/results/output..tsv", header=TRUE, sep='\t', data.table=FALSE)
 pheno_data <- tsv_data[,-c(1,2,3)]
 judge_set <- c()
 for (i in 1:length(colnames(pheno_data))) {
@@ -90,7 +97,7 @@ total_set <- cbind(binary_set1, continuous_set)
 n_white <- total_set[which(total_set[,"21000_1001"] == 0),]
 n_whi <- n_white[ ,-which(colnames(n_white) == "22006")]
 ### dim(whi) = 57160 1755
-vari <- c("3526_irnt", res$selected.markers)
+vari <- c("3526_irnt", "31","21022_irnt",res$selected.markers)
 if(vari[1] %in% colnames(n_whi)  == FALSE){
   cat("The pheno can not be found","\n")
   q() ## exit programme
@@ -102,11 +109,11 @@ for (i in 1:length(vari)) {
   if(i == 1){
     if(vari[i] %in% colnames(n_whi) == FALSE){
       vari[1] <- NA
-      }
+    }
   }else{
-  if(vari[i] %in% colnames(n_whi) == FALSE){
-    vari[i] <- NA
-    be[i-1] <- NA
+    if(vari[i] %in% colnames(n_whi) == FALSE){
+      vari[i] <- NA
+      be[i-1] <- NA
     }
   }
 }
@@ -126,17 +133,19 @@ t
 
 #### setting a circle
 pheno_log <- function(num){
-res <- sojo.phenotype(sum.stat.discovery = df.sojo, cor.X = xxcor, v.y = yinformat$var, nvar = num)
-cov.x <- diag(sqrt(xinformat$var)) %*% cor.x %*% diag(sqrt(xinformat$var))
-colnames(cov.x) <- colnames(cor.x)
-row.names(cov.x) <- row.names(cor.x)
-cov.x.y <- cor.x.y * sqrt(yinformat$var) * sqrt(xinformat$var)
-cov.x <- cov.x[res$selected.markers,res$selected.markers]
-cov.x.y <- cov.x.y[res$selected.markers]
-be <- solve(cov.x) %*% cov.x.y
+  res <- sojo.phenotype(sum.stat.discovery = df.sojo, cor.X = xxcor, v.y = yinformat$var, nvar = num)
+  cov.x <- diag(sqrt(xinformat$var)) %*% cor.x %*% diag(sqrt(xinformat$var))
+  colnames(cov.x) <- colnames(cor.x)
+  row.names(cov.x) <- row.names(cor.x)
+  cov.x.y <- cor.x.y * sqrt(yinformat$var) * sqrt(xinformat$var)
 
-  vari <- c("3526_irnt", res$selected.markers)
-
+  sase <- c(res$selected.markers,"sex","age")
+  cov.x <- cov.x[sase,sase]
+  cov.x.y <- cov.x.y[sase]
+  be <- solve(cov.x) %*% cov.x.y
+  
+  vari <- c("3526_irnt",res$selected.markers,  "31","21022_irnt")
+  
   ## out_r2
   lm_R2 <- c()
   for (i in 2:length(vari)) {
@@ -150,25 +159,23 @@ be <- solve(cov.x) %*% cov.x.y
   mark <- as.vector(na.action(b))
   select_data <- as.matrix(n_whi[, va])
   na_fix <- na.omit(select_data)
-
+  
   select_data <- as.matrix(n_whi[, va])
   na_fix <- na.omit(select_data)
   p <- ncol(na_fix)
   q <- nrow(na_fix)
-  
   if(num == 1){
     score <- na_fix[,-1] * as.vector(b)
     lm_summary <- summary(lm(na_fix[,1]~ score ))
     lm_R2[1] <- lm_summary$r.squared
   }
   else{
-  score <- sweep(na_fix[,-1], 2, b, "*")
-  for (i in 2:length(va[-1])) {
-    lm_summary <- summary(lm(na_fix[,1]~ score[,1:i] ))
-    lm_R2[i] <- lm_summary$r.squared
-   }
+    score <- sweep(na_fix[,-1], 2, b, "*")
+    for (i in 2:length(va)){
+      lm_summary <- summary(lm(na_fix[,1]~ score[,1:(i+1)] ))
+      lm_R2[i] <- lm_summary$r.squared
+    }
   }
-
   t <- list(va[length(va)], p-1, q, lm_R2[length(lm_R2)], mark)
   return(t)
 }
@@ -177,7 +184,7 @@ pheno <- c()
 var_num <- c()
 sam_size <- c()
 r2 <- c()
-for (i in 1:11) {
+for (i in 1:6) {
   m <- pheno_log(i)
   pheno[i] <- m[[1]]
   var_num[i] <- m[[2]]
@@ -185,25 +192,20 @@ for (i in 1:11) {
   r2[i] <- m[[4]]
   om <- m[[5]]
 }
-if(class(om) != "numeric"){
-  s <- data.frame(pheno, var_num, sam_size, r2)
-}else{
-  s <- data.frame(pheno[-om], var_num[-om], sam_size[-om], r2[-om])
-}
 s <- data.frame(pheno[-om], var_num[-om], sam_size[-om], r2[-om])
 colnames(s) <- c("pheno","var_num", "sam_size", "r2")
 write.table(s, file = "out_sample.csv",row.names = FALSE)
 read.csv("out_sample.csv",sep = "")
 
-# 
+
 # plot(r2csv[,2],r2csv[,4], lwd = 1, cex = .2, ann = F)
 # # text(num,r2csv[,2], labels = paste(1:length(select_var),".",select_var))
 # lines(r2csv[,2],r2csv[,4], col = "red", lty = 1, lwd = 2)
 # # axis(side=1,at=seq(from=1,by=2,length.out=10),labels=r2csv[,1])
 # par(new = TRUE)
-# plot(r2csv[,2],r2csv[,4],  lwd = 2, cex = .2,  ann = F, xaxt = "n", yaxt ="n")
-# lines(r2csv[,2],r2csv[,4], col = "blue", lty = 1, lwd = 2)
+# plot(r2csv[,2],r2csv[,3],  lwd = 2, cex = .2,  ann = F, xaxt = "n", yaxt ="n")
+# lines(r2csv[,2],r2csv[,3], col = "blue", lty = 1, lwd = 2)
 # # text(r2csv[,1],plot_8[,2], labels = paste(1:length(select_var),".",select_var))
 # axis(4)
-# title(main = "Outsample R2 and Sample Size Change as Variable Number Increase",xlab= 'Variable Numbers')
-# legend("bottom", c("Out-of-sample R2 of father", "Out-of-sample R2 of mother"),col = c("red","blue"), pch = c(1,17))
+# title(main = "Outsample R2 and Sample Size Change as Variable Number Increase for Father",xlab= 'Variable Numbers')
+# legend("bottom", c("Outsample R2", "Sample Size"),col = c("red","blue"), pch = c(1,17))
